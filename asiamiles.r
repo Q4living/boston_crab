@@ -1,5 +1,10 @@
 library(pdftools)
 library(stringr)
+library(ggvis)
+# install.packages("xgboost")
+library(xgboost)
+
+
 text <- pdf_text("~/Downloads/data.pdf")
 text2 <- strsplit(text, "\n")
 head(text2)
@@ -129,6 +134,101 @@ dt.crab.full.dcast$sex <- as.factor(dt.crab.full.dcast$sex)
 summary(dt.crab.full.dcast)
 
 # Normalise the data for KNN
+dt.crab.full.dcast$nLength <- (dt.crab.full.dcast$length - min(dt.crab.full.dcast$length)) / (max(dt.crab.full.dcast$length) - min(dt.crab.full.dcast$length))
+dt.crab.full.dcast$nDiameter <- (dt.crab.full.dcast$diameter - min(dt.crab.full.dcast$diameter)) / (max(dt.crab.full.dcast$diameter) - min(dt.crab.full.dcast$diameter))
+dt.crab.full.dcast$nHeight <- (dt.crab.full.dcast$height - min(dt.crab.full.dcast$height)) / (max(dt.crab.full.dcast$height) - min(dt.crab.full.dcast$height))
+dt.crab.full.dcast$nWeight <- (dt.crab.full.dcast$weight - min(dt.crab.full.dcast$weight)) / (max(dt.crab.full.dcast$weight) - min(dt.crab.full.dcast$weight))
+dt.crab.full.dcast$nShucked_weight <- (dt.crab.full.dcast$shucked_weight - min(dt.crab.full.dcast$shucked_weight)) / (max(dt.crab.full.dcast$shucked_weight) - min(dt.crab.full.dcast$shucked_weight))
+dt.crab.full.dcast$nViscera_weight <- (dt.crab.full.dcast$viscera_weight - min(dt.crab.full.dcast$viscera_weight)) / (max(dt.crab.full.dcast$viscera_weight) - min(dt.crab.full.dcast$viscera_weight))
+dt.crab.full.dcast$nShell_weight <- (dt.crab.full.dcast$shell_weight - min(dt.crab.full.dcast$shell_weight)) / (max(dt.crab.full.dcast$shell_weight) - min(dt.crab.full.dcast$shell_weight))
+dt.crab.full.dcast$nAge <- (dt.crab.full.dcast$age - min(dt.crab.full.dcast$age)) / (max(dt.crab.full.dcast$age) - min(dt.crab.full.dcast$age))
+
+dt.crab.full.dcast[,`:=`(mass = (height * diameter) / weight)]
+dt.crab.full.dcast[,`:=`(nMass = (mass - min(mass)) / (max(mass) - min(mass)))]
 
 
+dt.crab.kmean <- kmeans(dt.crab.full.dcast[,10:21],10)
+dt.crab.full.dcast$cluster <- dt.crab.kmean$cluster
+dt.crab.full.dcast$cluster <- as.numeric(dt.crab.full.dcast$cluster)
 
+dt.crab.full.dcast[height < 1] %>% ggvis(x = ~age, y = ~height, fill = ~factor(cluster))
+dt.crab.full.dcast[cluster == 4,cluster:=2]
+dt.crab.full.dcast[cluster == 10,cluster:=6]
+dt.crab.full.dcast[cluster == 7,cluster:=1]
+dt.crab.full.dcast[cluster == 9,cluster:=1]
+dt.crab.full.dcast[cluster == 5,cluster:=1]
+dt.crab.full.dcast[cluster == 3,cluster:=1]
+dt.crab.full.dcast[cluster == 8,cluster:=1]
+
+
+dt.crab.full.dcast[height < 1] %>% ggvis(x = ~age, y = ~height, fill = ~factor(cluster)) 
+dt.crab.full.dcast[height < 1] %>% ggvis(x = ~age, y = ~mass, fill = ~factor(cluster))
+dt.crab.full.dcast[height < 1] %>% ggvis(x = ~age, y = ~diameter, fill = ~factor(cluster))
+
+dt.crab.full.dcast[cluster > 1 ]
+hist(dt.crab.full.dcast[cluster == 1]$age)
+hist(dt.crab.full.dcast[cluster == 2]$age)
+hist(dt.crab.full.dcast[cluster == 6]$age)
+
+dt.crab.full.dcast[,.(uAge=mean(age),sdAge=sd(age),mAge=median(age)),by=.(cluster)]
+
+plot(dt.crab.full.dcast[,.(weight,height,diameter, mass, age)], col = dt.crab.full.dcast$cluster)
+legend("topleft", legend=(dt.crab.full.dcast$cluster), pch=16, col=unique(dt.crab.full.dcast$cluster))
+
+# Full length
+dt.crab.full.dcast[,.N]
+
+# Prepare the data for ML training
+# 40: test / 30: valid / 30: final
+set.seed(1)
+dt.test.sample <- sample(1:dt.crab.full.dcast[,.N],round(dt.crab.full.dcast[,.N] * .7))
+dt.crab.full.dcast$set <- "final"
+dt.crab.full.dcast[dt.test.sample]$set <- "train"
+dt.final <- dt.crab.full.dcast[set == "final"]
+dt.test <- dt.crab.full.dcast[set == "train"]
+set.seed(1)
+dt.valid <- sample(1:dt.test[,.N],round(dt.test[,.N] * .6))
+dt.test[dt.valid]$set <- "valid" 
+
+
+fit <- glm(age~nLength+nDiameter+nHeight+nWeight+nShucked_weight+nViscera_weight+nShell_weight+`F`+M+I,data=dt.test[set == "train"])
+nFit <- glm(age~length+diameter+height+weight+shucked_weight+viscera_weight+shell_weight+`F`+M+I,data=dt.test[set == "train"])
+
+dt.predict <- predict(fit,dt.test[set == "valid"])
+dt.predict.norm <- predict(fit,dt.test[set == "valid"])
+
+ggvis(dt.test[set == "valid"], x=~age, y=~dt.predict, fill=~factor(cluster))
+ggvis(dt.test[set == "valid"], x=~age, y=~dt.predict.norm, fill=~factor(cluster))
+
+dt.xgb <- xgboost(data = data.matrix(dt.test[set == "train",c(2:8,10:12)]),label = dt.test[set == "train"]$age, nrounds = 10)
+dt.xgb.norm <- xgboost(data = data.matrix(dt.test[set == "train",10:21]),label = dt.test[set == "train"]$age, nrounds = 1000)
+
+dt.xgb.predict <- predict(dt.xgb, data.matrix(dt.test[set == "valid",c(2:8,10:12)]))
+dt.xgb.norm.predict <- predict(dt.xgb.norm, data.matrix(dt.test[set == "valid",10:21]))
+
+ggvis(dt.test[set == "valid"], x=~age, y=~dt.xgb.predict, fill=~factor(cluster))
+ggvis(dt.test[set == "valid"], x=~age, y=~dt.xgb.norm.predict, fill=~factor(cluster))
+
+dt.test[set=="valid"][9]$age
+dt.xgb.predict[9]
+dt.xgb.norm.predict[9]
+
+mean(1- abs(dt.test[set == "valid"]$age - dt.xgb.predict)/dt.test[set == "valid"]$age)
+sum(dt.test[set == "valid"]$age == round(dt.xgb.predict))
+
+dt.xgb.predict.norm.final <- predict(dt.xgb.norm, data.matrix(dt.crab.full.dcast[set=="final",c(10:21)]))
+mean(1- abs(dt.crab.full.dcast[set=="final"]$age - dt.xgb.predict.norm.final)/dt.crab.full.dcast[set=="final"]$age)
+sum(dt.crab.full.dcast[set=="final"]$age == round(dt.xgb.predict.norm.final))
+ggvis(dt.crab.full.dcast[set=="final"], x=~age, y=~dt.xgb.predict.norm.final, fill=~factor(cluster))
+
+
+dt.xgb.predict.final <- predict(dt.xgb, data.matrix(dt.crab.full.dcast[set=="final",c(2:8,10:12)]))
+mean(1- abs(dt.crab.full.dcast[set=="final"]$age - dt.xgb.predict.final)/dt.crab.full.dcast[set=="final"]$age)
+sum(dt.crab.full.dcast[set=="final"]$age == round(dt.xgb.predict.final))
+ggvis(dt.crab.full.dcast[set=="final"], x=~age, y=~dt.xgb.predict.final, fill=~factor(cluster))
+
+lapply(names(dt.crab.full.dcast)[2:9],function(n){
+  print(paste(n,"max <<- ", max(getElement(dt.crab.full.dcast,n))))
+  eval(parse(text = paste(n,"Max <<- ", max(getElement(dt.crab.full.dcast,n)),sep = "")))
+  eval(parse(text = paste(n,"Min <<- ", min(getElement(dt.crab.full.dcast,n)),sep = "")))
+})
