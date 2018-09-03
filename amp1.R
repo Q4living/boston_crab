@@ -47,11 +47,11 @@ dt.score$nWeight <- (dt.score$weight - weightMin) / (weightMax - weightMin)
 dt.score$nShucked_weight <- (dt.score$shucked_weight - shucked_weightMin) / (shucked_weightMax - shucked_weightMin)
 dt.score$nViscera_weight <- (dt.score$viscera_weight - viscera_weightMin) / (viscera_weightMax - viscera_weightMin)
 dt.score$nShell_weight <- (dt.score$shell_weight - shell_weightMin) / (shell_weightMax - shell_weightMin)
-dt.score$nAge <- (dt.score$age - ageMin) / (ageMax - ageMin)
+# dt.score$nAge <- (dt.score$age - ageMin) / (ageMax - ageMin)
 dt.score[,`:=`(mass = (height * diameter) / weight)]
 dt.score[,`:=`(nMass = (mass - massMin) / (massMax - massMin))]
 
-dt.score$predicted_age <- round(predict(dt.xgb.norm, data.matrix(dt.score[,c(10:21)])))
+dt.score$predicted_age <- round(predict(dt.xgb.norm, data.matrix(dt.score[,c(10:19,21)])))
 
 fwrite(dt.score[,c(1:9,23)],args[2])
 # fwrite(dt.score[,c(1:9,23)],"scored.csv")

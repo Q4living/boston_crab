@@ -195,34 +195,69 @@ fit <- glm(age~nLength+nDiameter+nHeight+nWeight+nShucked_weight+nViscera_weight
 nFit <- glm(age~length+diameter+height+weight+shucked_weight+viscera_weight+shell_weight+`F`+M+I,data=dt.test[set == "train"])
 
 dt.predict <- predict(fit,dt.test[set == "valid"])
-dt.predict.norm <- predict(fit,dt.test[set == "valid"])
+dt.predict.norm <- predict(nFit,dt.test[set == "valid"])
 
 ggvis(dt.test[set == "valid"], x=~age, y=~dt.predict, fill=~factor(cluster))
 ggvis(dt.test[set == "valid"], x=~age, y=~dt.predict.norm, fill=~factor(cluster))
 
-dt.xgb <- xgboost(data = data.matrix(dt.test[set == "train",c(2:8,10:12)]),label = dt.test[set == "train"]$age, nrounds = 10)
-dt.xgb.norm <- xgboost(data = data.matrix(dt.test[set == "train",10:21]),label = dt.test[set == "train"]$age, nrounds = 1000)
+dt.test[,`:=`(glm=0,glm.norm=0)]
+dt.test[set=="valid",]$glm <- round(dt.predict)
+dt.test[set=="valid",]$glm.norm <- round(dt.predict.norm)
 
-dt.xgb.predict <- predict(dt.xgb, data.matrix(dt.test[set == "valid",c(2:8,10:12)]))
-dt.xgb.norm.predict <- predict(dt.xgb.norm, data.matrix(dt.test[set == "valid",10:21]))
+dt.test[set=="valid",.(accuracy = mean(1-abs(age-glm)/age), exact_match = sum(age==glm), total=.N)]
+dt.test[set=="valid",.(accuracy = mean(1-abs(age-glm.norm)/age), exact_match = sum(age==glm), total=.N)]
 
-ggvis(dt.test[set == "valid"], x=~age, y=~dt.xgb.predict, fill=~factor(cluster))
-ggvis(dt.test[set == "valid"], x=~age, y=~dt.xgb.norm.predict, fill=~factor(cluster))
-
-dt.test[set=="valid"][9]$age
-dt.xgb.predict[9]
-dt.xgb.norm.predict[9]
-
-mean(1- abs(dt.test[set == "valid"]$age - dt.xgb.predict)/dt.test[set == "valid"]$age)
-sum(dt.test[set == "valid"]$age == round(dt.xgb.predict))
-
-dt.xgb.predict.norm.final <- predict(dt.xgb.norm, data.matrix(dt.crab.full.dcast[set=="final",c(10:21)]))
+dt.predict.final <- predict(fit,dt.crab.full.dcast[set == "final"])
+dt.predict.norm.final <- predict(nFit,dt.crab.full.dcast[set == "final"])
 mean(1- abs(dt.crab.full.dcast[set=="final"]$age - dt.xgb.predict.norm.final)/dt.crab.full.dcast[set=="final"]$age)
 sum(dt.crab.full.dcast[set=="final"]$age == round(dt.xgb.predict.norm.final))
 ggvis(dt.crab.full.dcast[set=="final"], x=~age, y=~dt.xgb.predict.norm.final, fill=~factor(cluster))
 
+mean(1- abs(dt.crab.full.dcast[set=="final"]$age - dt.xgb.predict.final)/dt.crab.full.dcast[set=="final"]$age)
+sum(dt.crab.full.dcast[set=="final"]$age == round(dt.xgb.predict.final))
+ggvis(dt.crab.full.dcast[set=="final"], x=~age, y=~dt.xgb.predict.final, fill=~factor(cluster))
 
-dt.xgb.predict.final <- predict(dt.xgb, data.matrix(dt.crab.full.dcast[set=="final",c(2:8,10:12)]))
+## XGboosting modeling
+train <- dt.test[set == "train",c(2:8,21,9)]
+train.norm <- dt.test[set == "train",c(10:19,22,9)]
+
+valid <- dt.test[set == "valid",c(2:8,21,9)]
+valid.norm <- dt.test[set == "valid",c(10:19,22,9)]
+
+final <- dt.crab.full.dcast[set == "final",c(2:8,21,9)]
+final.norm <- dt.crab.full.dcast[set == "final",c(10:19,22,9)]
+
+dt.xgb <- xgboost(data = data.matrix(train[,c(1:8)]),label = train$age, nrounds = 50)
+dt.xgb.norm <- xgboost(data = data.matrix(train.norm[,c(1:11)]),label = train.norm$age, nrounds = 50)
+
+dt.xgb.predict <- predict(dt.xgb, data.matrix(valid[,c(1:8)]))
+dt.xgb.norm.predict <- predict(dt.xgb.norm, data.matrix(valid.norm[,c(1:11)]))
+
+dt.test$xgb <- 0
+dt.test$xgb.norm <- 0
+
+dt.test[set=="valid"]$xgb <- dt.xgb.predict
+dt.test[set=="valid"]$xgb.norm <- dt.xgb.norm.predict
+
+ggvis(dt.test[set=="valid"], x=~age, y=~xgb,fill=~factor(cluster))
+ggvis(dt.test[set=="valid"], x=~age, y=~xgb.norm, fill=~factor(cluster))
+
+valid[9]$age
+dt.xgb.predict[9]
+dt.xgb.norm.predict[9]
+
+mean(1- abs(valid$age - dt.xgb.predict)/valid$age)
+sum(valid$age == round(dt.xgb.predict))
+
+mean(1- abs(valid.norm$age - dt.xgb.norm.predict)/valid.norm$age)
+sum(valid.norm$age == round(dt.xgb.norm.predict))
+
+dt.xgb.predict.norm.final <- predict(dt.xgb.norm, data.matrix(final.norm[,c(1:11)]))
+mean(1- abs(dt.crab.full.dcast[set=="final"]$age - dt.xgb.predict.norm.final)/dt.crab.full.dcast[set=="final"]$age)
+sum(dt.crab.full.dcast[set=="final"]$age == round(dt.xgb.predict.norm.final))
+ggvis(dt.crab.full.dcast[set=="final"], x=~age, y=~dt.xgb.predict.norm.final, fill=~factor(cluster))
+
+dt.xgb.predict.final <- predict(dt.xgb, data.matrix(final[,c(1:8)]))
 mean(1- abs(dt.crab.full.dcast[set=="final"]$age - dt.xgb.predict.final)/dt.crab.full.dcast[set=="final"]$age)
 sum(dt.crab.full.dcast[set=="final"]$age == round(dt.xgb.predict.final))
 ggvis(dt.crab.full.dcast[set=="final"], x=~age, y=~dt.xgb.predict.final, fill=~factor(cluster))
